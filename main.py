@@ -26,7 +26,7 @@ def repaint(igs_in):
 
 def main():
     # read img
-    img_in = Image.open('data/raw/raw_1.png').convert('RGB')
+    img_in = Image.open('data/raw/(예시)1-2.png').convert('RGB')
     igs_in = np.array(img_in)
 
     print("img_in.shape: ", igs_in.shape, "\n")
