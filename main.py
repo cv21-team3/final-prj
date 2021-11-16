@@ -22,6 +22,10 @@ def select_removal_target(igs_in):
     return igs_in
 
 def mask(igs_in):
+    for x in range(159, 322):
+        for y in range(162, 213):
+            igs_in[x, y, :] = 0
+
     for x in range(180, 278):
         for y in range(350, 400):
             igs_in[x, y, :] = 0
