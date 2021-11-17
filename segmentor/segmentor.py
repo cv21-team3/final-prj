@@ -10,6 +10,7 @@ import numpy as np
 import os.path
 import sys
 import random
+import os
 
 # Initialize the parameters
 confThreshold = 0.5  # Confidence threshold
