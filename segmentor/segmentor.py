@@ -78,7 +78,8 @@ def main():
         preservedFigures = []
         idx = int(input('Enter the index of the figure to preserve: '))
         img = postprocess_black(original_img, boxes, masks, idx)
-        fileName = args.image[:-4] + '_black.jpg'
+        fileName = args.image[:-5] + '-' + str(idx) + '.jpg'
+
         cv.imwrite(fileName, img.astype(np.uint8))
 
 # Extract the bounding box and mask for each detected object
