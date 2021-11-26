@@ -5,6 +5,8 @@ import dlib
 import cv2
 
 
+# @param image: segmentor 를 통해 얻은 사람(들) region 외 mask 된 이미지
+# @retval image: face detected image (if any)
 def show_raw_detection(image, detector, predictor):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -14,18 +16,21 @@ def show_raw_detection(image, detector, predictor):
     rects = detector(gray, 3)
 
     if len(rects) != 0:
-        # Assume only single face detected
-        rect = rects[0]
-        shape = predictor(gray, rect)
-        shape = face_utils.shape_to_np(shape)
-        (x, y, w, h) = face_utils.rect_to_bb(rect)
-        cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        for (i, rect) in enumerate(rects):
 
-        # loop over the (x, y)-coordinates for the facial landmarks
-        # and draw them on the image
-        print("Number of dots: ", len(shape))
-        for (x, y) in shape:
-            cv2.circle(image, (x, y), 1, (0, 0, 255), -1)
+            shape = predictor(gray, rect)
+            shape = face_utils.shape_to_np(shape)
+            (x, y, w, h) = face_utils.rect_to_bb(rect)
+            cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            # show the face number
+            cv2.putText(image, "Face #{}".format(i), (x - 10, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+            # loop over the (x, y)-coordinates for the facial landmarks
+            # and draw them on the image
+            for (x, y) in shape:
+                cv2.circle(image, (x, y), 1, (0, 0, 255), -1)
 
         return image
 
