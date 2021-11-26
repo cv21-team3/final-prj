@@ -11,5 +11,5 @@ pip install opencv-python
 
 ### How to Run
 ```
-python facial_landmarks.py --image ../data/target/${filename}
+python facial_landmarks.py --image ${filepath}
 ```
