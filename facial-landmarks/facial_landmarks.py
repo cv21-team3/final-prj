@@ -8,13 +8,14 @@ import cv2
 def show_raw_detection(image, detector, predictor):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # detect faces in the grayscale image
+    # Detect face in the grayscale image
     # @param gray scale image
     # @param upscaling factor
     rects = detector(gray, 3)
 
-    # Assume only single face detected
-    for (i, rect) in enumerate(rects):
+    if len(rects) != 0:
+        # Assume only single face detected
+        rect = rects[0]
         shape = predictor(gray, rect)
         shape = face_utils.shape_to_np(shape)
         (x, y, w, h) = face_utils.rect_to_bb(rect)
@@ -25,7 +26,11 @@ def show_raw_detection(image, detector, predictor):
         for (x, y) in shape:
             cv2.circle(image, (x, y), 1, (0, 0, 255), -1)
 
-    return image
+        return image
+
+    else:
+        print("No face detected.")
+        return None
 
 
 def main():
@@ -40,7 +45,7 @@ def main():
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor("./shape-predictor/shape_predictor_68_face_landmarks.dat")
     image = cv2.imread(args["image"])
-    image = imutils.resize(image, width=500)
+    # image = imutils.resize(image, width=500)
 
     complete_landmarks_detected_img = show_raw_detection(image, detector, predictor)
 
