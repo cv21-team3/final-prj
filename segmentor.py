@@ -71,7 +71,7 @@ def postprocess_segment(classes,colors, image, boxes, masks):
     box_size=np.array(box_size)
     return box_size,bbox_coord
 
-def postprocess_black(image, boxes, masks, idx):
+def postprocess_black(image, boxes, masks, idx, img_):
     # Output size of masks is NxCxHxW where
     # N - number of detected boxes
     # C - number of classes (excluding background)
@@ -102,9 +102,10 @@ def postprocess_black(image, boxes, masks, idx):
     classMask = mask[classId]
 
     # Draw bounding box, colorize and show the mask on the image
-    image = leaveFigure(image, idx, left, top, right, bottom, classMask)
+    image1 = leaveFigure(image, idx, left, top, right, bottom, classMask)
+    image2, img = leaveFigure2(image, idx, left, top, right, bottom, classMask, img_)
 
-    return image
+    return image1, image2, img
 
 # Draw the predicted bounding box, colorize and show the mask on the image
 def drawBox(colors,frame, idx, left, top, right, bottom, classMask):
@@ -144,6 +145,42 @@ def leaveFigure(image, idx, left, top, right, bottom, classMask):
     image = cv.subtract(image, diff)
 
     return image
+
+# Paint the selected area
+def leaveFigure2(image, idx, left, top, right, bottom, classMask, img):
+    # Resize the mask, threshold, color and apply it on the image
+    classMask = cv.resize(classMask, (right - left + 1, bottom - top + 1))
+    mask = classMask > maskThreshold
+
+    # Draw the contours on the image
+    mask = mask.astype(np.uint8)
+    contours, hierarchy = cv.findContours(mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    diff = image.copy()
+
+    cv.drawContours(diff[top-20:bottom + 1, left:right + 1], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+    cv.drawContours(img[top-20:bottom + 1, left:right + 1], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+
+    cv.drawContours(diff[top:bottom + 1, left-20:right + 1], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+    cv.drawContours(img[top:bottom + 1, left-20:right + 1], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+
+    cv.drawContours(diff[top:bottom + 20, left:right + 1], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+    cv.drawContours(img[top:bottom + 20, left:right + 1], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+
+    cv.drawContours(diff[top:bottom + 1, left:right + 20], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+    cv.drawContours(img[top:bottom + 1, left:right + 20], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+
+
+    cv.drawContours(diff[top:bottom + 1, left:right + 1], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+    cv.drawContours(img[top:bottom + 1, left:right + 1], contours, -1, color=(255,255,255), thickness=cv.FILLED)
+    '''
+    for y in range(image.shape[1]):
+        for x in range(image.shape[0]):
+            if diff[x,y,0] != 1 and diff[x,y,1] != 1 and diff[x,y,2] != 1:
+                image[x,y,0] = 255
+                image[x,y,1] = 255
+                image[x,y,2] = 255
+    '''
+    return diff, img
 
 #if __name__ == '__main__':
 #    main()

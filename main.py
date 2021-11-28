@@ -120,42 +120,38 @@ def mask(args,target,bbox_coord):
     masked_image=image.copy()
     temp=image.copy()
     masked_traces=np.empty_like(image)
+    img_mask = np.zeros(image.shape)
+
     for i in range(len(bbox_coord)):
-      if i!=target:
-        temp=postprocess_black(masked_image,boxes,masks,i)
-        masked_image=cv.subtract(masked_image,temp)
+      if i != target:
+        temp, temp2, img = postprocess_black(masked_image,boxes,masks,i, img_mask)
+        #masked_image=cv.subtract(masked_image, temp)
+        masked_image = temp2
+    
+    cv.imwrite('out_diff'+str(i)+'.jpg', masked_image.astype(np.uint8))
+    cv.imwrite('out_new_img'+str(i)+'.jpg', img_mask.astype(np.uint8))
+ 
     masked_traces=cv.subtract(image,masked_image)
     fileName = args.image[:-4] + 'masked.jpg'
     cv.imwrite(fileName, masked_image.astype(np.uint8))
+
     fileName = args.image[:-4] + 'masked_traces.jpg'
     cv.imwrite(fileName, masked_traces.astype(np.uint8))
+
     print("step 2 completed")
-    return masked_image,masked_traces
+    return masked_image, img_mask
 # masked_image : masking 된 image
 # masked_traces : masking한 조각들이 모여있는 image
 
-def repaint(igs_in):
+def repaint(igs_in, img_mask):
   print("3. REPAINT")
   FLAGS = ng.Config('inpaint.yml')
   # ng.get_gpus(1)
   args, unknown = parser.parse_known_args()
 
   model = InpaintCAModel()
-  image = cv2.imread(args.image)
-  mask = igs_in
-  for y in range(mask.shape[1]):
-    for x in range(mask.shape[0]):
-        if mask[x,y,0] == 255 and mask[x,y,1] == 255 and mask[x,y,2] == 255:
-            mask[x,y,0] = 255
-            mask[x,y,1] = 255
-            mask[x,y,2] = 255
-            image[x,y,0] = 255
-            image[x,y,1] = 255
-            image[x,y,2] = 255
-        else:
-            mask[x,y,0] = 0
-            mask[x,y,1] = 0
-            mask[x,y,2] = 0
+  image = igs_in # correct
+  mask = img_mask
 
   cv.imwrite(args.image[:-4] + 'input.jpg', image.astype(np.uint8))
   cv.imwrite(args.image[:-4] + 'mask.jpg', mask.astype(np.uint8))
@@ -221,12 +217,12 @@ def main():
     ##############
     # step 2: masking removal target region
     ##############
-    masked_img, masked_traces = mask(args,target,bbox_coord)
+    masked_img, img_mask = mask(args,target,bbox_coord)
 
     ##############
     # step 3: repainting masked region
     ##############
-    repainted = repaint(masked_img)
+    repainted = repaint(masked_img, img_mask)
     #Image.fromarray(repainted.astype(np.uint8)).save('data/result/(예시)1-2.png')
 
 if __name__ == '__main__':
