@@ -2,3 +2,10 @@ numpy
 Pillow
 matplotlib
 opencv-python
+imutils
+cmake
+dlib
+opencv-python
+tensorflow==1.5.0
+pillow
+git+https://github.com/JiahuiYu/neuralgym

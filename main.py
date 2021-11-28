@@ -13,8 +13,13 @@ import random
 from imutils import face_utils
 import imutils
 import dlib
+import neuralgym as ng
+import tensorflow as tf
+import argparse
+from inpaint_model import InpaintCAModel
 
 def select_target(args):
+    print("1. SELECT TARGET")
     global classes, colors, boxes, masks, original_img
 
     ############################
@@ -108,6 +113,7 @@ def select_target(args):
 
 
 def mask(args,target,bbox_coord):
+    print("2. MASK")
     global classes,colors,masks,boxes,original_img
 
     image=original_img.copy()
@@ -123,20 +129,88 @@ def mask(args,target,bbox_coord):
     cv.imwrite(fileName, masked_image.astype(np.uint8))
     fileName = args.image[:-4] + 'masked_traces.jpg'
     cv.imwrite(fileName, masked_traces.astype(np.uint8))
+    print("step 2 completed")
     return masked_image,masked_traces
 # masked_image : masking 된 image
 # masked_traces : masking한 조각들이 모여있는 image
 
 def repaint(igs_in):
+  print("3. REPAINT")
+  FLAGS = ng.Config('inpaint.yml')
+  # ng.get_gpus(1)
+  args, unknown = parser.parse_known_args()
 
-    return igs_in
+  model = InpaintCAModel()
+  image = cv2.imread(args.image)
+  mask = igs_in
+  for y in range(mask.shape[1]):
+    for x in range(mask.shape[0]):
+        if mask[x,y,0] == 255 and mask[x,y,1] == 255 and mask[x,y,2] == 255:
+            mask[x,y,0] = 255
+            mask[x,y,1] = 255
+            mask[x,y,2] = 255
+            image[x,y,0] = 255
+            image[x,y,1] = 255
+            image[x,y,2] = 255
+        else:
+            mask[x,y,0] = 0
+            mask[x,y,1] = 0
+            mask[x,y,2] = 0
+
+  cv.imwrite(args.image[:-4] + 'input.jpg', image.astype(np.uint8))
+  cv.imwrite(args.image[:-4] + 'mask.jpg', mask.astype(np.uint8))
+
+  #mask = cv2.resize(mask, (0,0), fx=0.55, fy=0.55)
+  print(image.shape)
+  print(mask.shape)
+
+  assert image.shape == mask.shape
+
+  h, w, _ = image.shape
+  grid = 8
+  image = image[:h//grid*grid, :w//grid*grid, :]
+  mask = mask[:h//grid*grid, :w//grid*grid, :]
+  print('Shape of image: {}'.format(image.shape))
+
+  image = np.expand_dims(image, 0)
+  mask = np.expand_dims(mask, 0)
+  input_image = np.concatenate([image, mask], axis=2)
+
+  sess_config = tf.ConfigProto()
+  sess_config.gpu_options.allow_growth = True
+  with tf.Session(config=sess_config) as sess:
+    input_image = tf.constant(input_image, dtype=tf.float32)
+    output = model.build_server_graph(FLAGS, input_image)
+    output = (output + 1.) * 127.5
+    output = tf.reverse(output, [-1])
+    output = tf.saturate_cast(output, tf.uint8)
+    # load pretrained model
+    vars_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+    assign_ops = []
+    for var in vars_list:
+      vname = var.name
+      from_name = vname
+      var_value = tf.contrib.framework.load_variable(args.checkpoint_dir, from_name)
+      assign_ops.append(tf.assign(var, var_value))
+    sess.run(assign_ops)
+    print('Model loaded.')
+    result = sess.run(output)
+    cv2.imwrite(args.output, result[0][:, :, ::-1])
+  return igs_in
 
 def main():
     # read img
 
-    global classes, colors,masks,original_img
+    global classes, colors,masks,original_img, parser
     parser = argparse.ArgumentParser(description='image preprocess')
     parser.add_argument('--image', help='Path to image file')
+    parser.add_argument('--mask', default='', type=str,
+                    help='The filename of mask, value 255 indicates mask.')
+    parser.add_argument('--output', default='output.png', type=str,
+                        help='Where to write output.')
+    parser.add_argument('--checkpoint_dir', default='', type=str,
+                        help='The directory of tensorflow checkpoint.')
+
     args = parser.parse_args()
 
     ##############
@@ -152,7 +226,7 @@ def main():
     ##############
     # step 3: repainting masked region
     ##############
-    #repainted = repaint(masked)
+    repainted = repaint(masked_img)
     #Image.fromarray(repainted.astype(np.uint8)).save('data/result/(예시)1-2.png')
 
 if __name__ == '__main__':
