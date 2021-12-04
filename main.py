@@ -5,6 +5,7 @@ from PIL import Image
 from matplotlib import pyplot as plt
 from facial_landmarks import *
 from segmentor import *
+from optical_flow import *
 import cv2 as cv
 import argparse
 import os.path
@@ -138,15 +139,16 @@ def mask(args, target, bbox_coord):
     fileName = args.image[:-4] + 'masked_traces.jpg'
     #cv.imwrite(fileName, masked_traces.astype(np.uint8))
 
-    print("step 2 completed")
     return masked_image, img_mask
 
 
 # masked_image : masking 된 image
 # masked_traces : masking한 조각들이 모여있는 image
 
+
 def repaint_img(igs_in, img_mask):
     print("3. REPAINT")
+
     FLAGS = ng.Config('inpaint.yml')
     # ng.get_gpus(1)
     args, unknown = parser.parse_known_args()
@@ -192,12 +194,14 @@ def repaint_img(igs_in, img_mask):
             var_value = tf.contrib.framework.load_variable(args.checkpoint_dir, from_name)
             assign_ops.append(tf.assign(var, var_value))
         sess.run(assign_ops)
-        print('Model loaded.')
+        print('Model loaded')
         result = sess.run(output)
         return result[0][:, :, ::-1]
 
 
-def repaint_video(frames, masks):
+def repaint_video_naive(frames, masks):
+    print("3. REPAINT")
+
     args, unknown = parser.parse_known_args()
 
     sess_config = tf.ConfigProto()
@@ -224,6 +228,7 @@ def repaint_video(frames, masks):
 
     results = []
     for i in range(len(frames)):
+        print('Repainting frame ' + str(i + 1))
         image = frames[i]
         mask = masks[i]
 
@@ -233,7 +238,7 @@ def repaint_video(frames, masks):
         grid = 8
         image = image[:h // grid * grid, :w // grid * grid, :]
         mask = mask[:h // grid * grid, :w // grid * grid, :]
-        print('Shape of image: {}'.format(image.shape))
+        #print('Shape of image: {}'.format(image.shape))
 
         image = np.expand_dims(image, 0)
         mask = np.expand_dims(mask, 0)
@@ -242,6 +247,75 @@ def repaint_video(frames, masks):
         # load pretrained model
         result = sess.run(output, feed_dict={input_image_ph: input_image})
         results.append(result[0][:, :, ::-1])
+
+    return results
+
+
+def repaint_video_flow(frames, masks, transforms):
+    print("3. REPAINT")
+
+    args, unknown = parser.parse_known_args()
+
+    sess_config = tf.ConfigProto()
+    sess_config.gpu_options.allow_growth = True
+    sess = tf.Session(config=sess_config)
+
+    FLAGS = ng.Config('inpaint.yml')
+    model = InpaintCAModel()
+    input_image_ph = tf.placeholder(tf.float32, shape=(1, frames[0].shape[0], frames[0].shape[1] * 2, 3))
+    output = model.build_server_graph(FLAGS, input_image_ph)
+    output = (output + 1.) * 127.5
+    output = tf.reverse(output, [-1])
+    output = tf.saturate_cast(output, tf.uint8)
+    vars_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+    assign_ops = []
+    for var in vars_list:
+        vname = var.name
+        from_name = vname
+        var_value = tf.contrib.framework.load_variable(args.checkpoint_dir, from_name)
+        assign_ops.append(tf.assign(var, var_value))
+
+    sess.run(assign_ops)
+    print('Model loaded.')
+
+    results = []
+    # Process each image
+    for i in range(len(frames)):
+        print('Repainting frame ' + str(i + 1))
+        image = frames[i]
+        mask = masks[i]
+
+        assert image.shape == mask.shape
+        h, w, _ = image.shape
+
+        transform = transforms[0]
+        #################### Filling START ####################
+        if i >= 1:
+            transform = transforms[i - 1] @ transform
+            prev_image = frames[0]
+            warped_prev = warp(transform, prev_image)
+            cropped = warped_prev * (mask // 255)
+            reverse_mask = 1 - (mask // 255)
+            image = reverse_mask * image + cropped
+            mask = np.zeros(mask.shape)
+            #cv.imwrite('./data/process/frame' + str(i) + '.png', image)
+            #cv.imwrite('./data/process/mask' + str(i) + '.png', mask)
+        #################### Filling END ####################
+
+        grid = 8
+        image = image[:h // grid * grid, :w // grid * grid, :]
+        mask = mask[:h // grid * grid, :w // grid * grid, :]
+
+        image = np.expand_dims(image, 0)
+        mask = np.expand_dims(mask, 0)
+        input_image = np.concatenate([image, mask], axis=2)
+
+        # load pretrained model
+        result = sess.run(output, feed_dict={input_image_ph: input_image})
+        result = result[0][:, :, ::-1]
+
+        results.append(result)
+        frames[i] = result
 
     return results
 
@@ -273,7 +347,7 @@ def process_image(args):
 
 
 def process_video_naive(args):
-    #  ==================== Open the image file  ====================
+    #  ==================== Open the video file  ====================
     if not os.path.isfile(args.video):
         print('Input video file ', args.video, ' does not exist')
         sys.exit(1)
@@ -284,7 +358,7 @@ def process_video_naive(args):
     out = cv2.VideoWriter(args.output, fourcc, 30, frame_size)
 
     count = 1
-    frames = []
+    masked_frames = []
     masks = []
     while cap.isOpened():
         print('Processing frame ' + str(count))
@@ -305,15 +379,73 @@ def process_video_naive(args):
             ##############
             # step 3: repainting masked region
             ##############
-            frames.append(masked_frame)
-            cv.imwrite('./data/video/frame.png', masked_frame)
+            masked_frames.append(masked_frame)
             masks.append(frame_mask)
 
             # Image.fromarray(repainted.astype(np.uint8)).save('data/result/(예시)1-2.png')
         else:
             break
 
-    repainted = repaint_video(frames, masks)
+    repainted = repaint_video_naive(masked_frames, masks)
+    for r in repainted:
+        out.write(r)
+
+    cap.release()
+    out.release()
+
+
+def process_video_flow(args):
+    #  ==================== Open the video file  ====================
+    if not os.path.isfile(args.video):
+        print('Input video file ', args.video, ' does not exist')
+        sys.exit(1)
+
+    cap = cv.VideoCapture(args.video)
+    frame_size = (int(cap.get(cv.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv.CAP_PROP_FRAME_HEIGHT)))
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(args.output, fourcc, 30, frame_size)
+
+    count = 1
+    masked_frames = []
+    frames = []
+    masks = []
+    #while count < 30:
+    while cap.isOpened():
+        print('Processing frame ' + str(count))
+        ret, frame = cap.read()
+        count += 1
+
+        if ret:
+            frames.append(frame)
+
+            ##############
+            # step 1: selecting removal target region
+            ##############
+            target, bbox_coord = select_target(args, frame)
+
+            ##############
+            # step 2: masking removal target region
+            ##############
+            masked_frame, frame_mask = mask(args, target, bbox_coord)
+
+            ##############
+            # step 3: repainting masked region
+            ##############
+            masked_frames.append(masked_frame)
+            masks.append(frame_mask)
+
+            # Image.fromarray(repainted.astype(np.uint8)).save('data/result/(예시)1-2.png')
+        else:
+            break
+
+    transforms = []
+    for i in range(1, len(frames)):
+        print('Getting the affine transformation from frame ' + str(i + 1) + ' to ' + str(i))
+        prev_frame = cv.cvtColor(frames[i - 1], cv.COLOR_BGR2GRAY)
+        curr_frame = cv.cvtColor(frames[i], cv.COLOR_BGR2GRAY)
+        transforms.append(get_affine(prev_frame, curr_frame))
+
+    repainted = repaint_video_flow(masked_frames, masks, transforms)
     for r in repainted:
         out.write(r)
 
@@ -339,7 +471,8 @@ def main():
         cv.imwrite(args.output, repainted)
 
     elif args.video != '':
-        process_video_naive(args)
+        #process_video_naive(args)
+        process_video_flow(args)
 
     else:
         print('No input was provided')
