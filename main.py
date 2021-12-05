@@ -289,7 +289,6 @@ def repaint_video_flow(frames, masks, transforms):
         h, w, _ = image.shape
 
         transform = transforms[0]
-        #################### Filling START ####################
         if i >= 1:
             transform = transforms[i - 1] @ transform
             prev_image = frames[0]
@@ -297,25 +296,24 @@ def repaint_video_flow(frames, masks, transforms):
             cropped = warped_prev * (mask // 255)
             reverse_mask = 1 - (mask // 255)
             image = reverse_mask * image + cropped
-            mask = np.zeros(mask.shape)
             #cv.imwrite('./data/process/frame' + str(i) + '.png', image)
             #cv.imwrite('./data/process/mask' + str(i) + '.png', mask)
-        #################### Filling END ####################
+            results.append(image.astype(np.uint8))
+        else:
+            grid = 8
+            image = image[:h // grid * grid, :w // grid * grid, :]
+            mask = mask[:h // grid * grid, :w // grid * grid, :]
 
-        grid = 8
-        image = image[:h // grid * grid, :w // grid * grid, :]
-        mask = mask[:h // grid * grid, :w // grid * grid, :]
+            image = np.expand_dims(image, 0)
+            mask = np.expand_dims(mask, 0)
+            input_image = np.concatenate([image, mask], axis=2)
 
-        image = np.expand_dims(image, 0)
-        mask = np.expand_dims(mask, 0)
-        input_image = np.concatenate([image, mask], axis=2)
-
-        # load pretrained model
-        result = sess.run(output, feed_dict={input_image_ph: input_image})
-        result = result[0][:, :, ::-1]
-
-        results.append(result)
-        frames[i] = result
+            # load pretrained model
+            result = sess.run(output, feed_dict={input_image_ph: input_image})
+            result = result[0][:, :, ::-1]
+            print(result)
+            results.append(result)
+            frames[i] = result
 
     return results
 
@@ -409,7 +407,7 @@ def process_video_flow(args):
     masked_frames = []
     frames = []
     masks = []
-    #while count < 30:
+    #while count < 10:
     while cap.isOpened():
         print('Processing frame ' + str(count))
         ret, frame = cap.read()
@@ -463,6 +461,7 @@ def main():
     parser.add_argument('--mask', default='', type=str, help='The filename of mask, value 255 indicates mask.')
     parser.add_argument('--output', default='output.png', type=str, help='Where to write output.')
     parser.add_argument('--checkpoint_dir', default='', type=str, help='The directory of tensorflow checkpoint.')
+    parser.add_argument('--naive', default=False)
 
     args = parser.parse_args()
 
@@ -471,8 +470,10 @@ def main():
         cv.imwrite(args.output, repainted)
 
     elif args.video != '':
-        #process_video_naive(args)
-        process_video_flow(args)
+        if args.naive:
+            process_video_naive(args)
+        else:
+            process_video_flow(args)
 
     else:
         print('No input was provided')
