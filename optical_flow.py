@@ -121,6 +121,20 @@ def warp(M, img):
                 warped[y, x] = img[warped_y, warped_x]
     return warped
 
+def warp_mask(M, img):
+    h = img.shape[0]
+    w = img.shape[1]
+    warped = np.full(img.shape, 255)
+    M_inv = np.linalg.inv(M)
+    for y in range(warped.shape[0]):
+        for x in range(warped.shape[1]):
+            coord = M_inv @ np.array([[x], [y], [1]])
+            warped_x = int(coord[0, 0])
+            warped_y = int(coord[1, 0])
+            if 0 <= warped_y < h and 0 <= warped_x < w:
+                warped[y, x] = img[warped_y, warped_x]
+    return warped
+
 
 if __name__ == "__main__":
     data_dir = 'data'

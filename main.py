@@ -279,6 +279,7 @@ def repaint_video_flow(frames, masks, transforms):
     print('Model loaded.')
 
     results = []
+    transform = transforms[0]
     # Process each image
     for i in range(len(frames)):
         print('Repainting frame ' + str(i + 1))
@@ -288,18 +289,23 @@ def repaint_video_flow(frames, masks, transforms):
         assert image.shape == mask.shape
         h, w, _ = image.shape
 
-        transform = transforms[0]
         if i >= 1:
-            transform = transforms[i - 1] @ transform
+            if i >= 2:
+                transform = transforms[i - 1] @ transform
             prev_image = frames[0]
-            warped_prev = warp(transform, prev_image)
-            cropped = warped_prev * (mask // 255)
+
+            warped_prev_image = warp(transform, prev_image)
+            cropped = warped_prev_image * (mask // 255)
             reverse_mask = 1 - (mask // 255)
             image = reverse_mask * image + cropped
+
+            warped_mask = warp_mask(transform, np.zeros(mask.shape)) # Exclude areas covered by the previous frame
+            mask = np.minimum(warped_mask, mask)
             #cv.imwrite('./data/process/frame' + str(i) + '.png', image)
             #cv.imwrite('./data/process/mask' + str(i) + '.png', mask)
-            results.append(image.astype(np.uint8))
-        else:
+            #cv.imwrite('./data/process/warped' + str(i) + '.png', warped_mask)
+
+        if args.repetitive:
             grid = 8
             image = image[:h // grid * grid, :w // grid * grid, :]
             mask = mask[:h // grid * grid, :w // grid * grid, :]
@@ -311,9 +317,10 @@ def repaint_video_flow(frames, masks, transforms):
             # load pretrained model
             result = sess.run(output, feed_dict={input_image_ph: input_image})
             result = result[0][:, :, ::-1]
-            print(result)
             results.append(result)
             frames[i] = result
+        elif i == 0:
+            pass # Non-deep learning painting here
 
     return results
 
@@ -462,6 +469,7 @@ def main():
     parser.add_argument('--output', default='output.png', type=str, help='Where to write output.')
     parser.add_argument('--checkpoint_dir', default='', type=str, help='The directory of tensorflow checkpoint.')
     parser.add_argument('--naive', default=False)
+    parser.add_argument('--repetitive', default=False)
 
     args = parser.parse_args()
 
