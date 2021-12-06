@@ -276,7 +276,7 @@ def repaint_video_flow(frames, masks, transforms):
         assign_ops.append(tf.assign(var, var_value))
 
     sess.run(assign_ops)
-    print('Model loaded.')
+    print('Model loaded')
 
     results = []
     transform = transforms[0]
