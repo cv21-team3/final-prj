@@ -11,6 +11,7 @@ import argparse
 import os.path
 import sys
 import random
+import time
 from imutils import face_utils
 import imutils
 import dlib
@@ -18,6 +19,7 @@ import neuralgym as ng
 import tensorflow as tf
 import argparse
 from inpaint_model import InpaintCAModel
+from classical_repaint.inpainter.inpainter import *
 
 
 def select_target(args, img):
@@ -305,22 +307,59 @@ def repaint_video_flow(frames, masks, transforms):
             #cv.imwrite('./data/process/mask' + str(i) + '.png', mask)
             #cv.imwrite('./data/process/warped' + str(i) + '.png', warped_mask)
 
-        if args.repetitive:
-            grid = 8
-            image = image[:h // grid * grid, :w // grid * grid, :]
-            mask = mask[:h // grid * grid, :w // grid * grid, :]
+        grid = 8
+        image = image[:h // grid * grid, :w // grid * grid, :]
+        mask = mask[:h // grid * grid, :w // grid * grid, :]
 
-            image = np.expand_dims(image, 0)
-            mask = np.expand_dims(mask, 0)
-            input_image = np.concatenate([image, mask], axis=2)
+        image = np.expand_dims(image, 0)
+        mask = np.expand_dims(mask, 0)
+        input_image = np.concatenate([image, mask], axis=2)
 
-            # load pretrained model
-            result = sess.run(output, feed_dict={input_image_ph: input_image})
-            result = result[0][:, :, ::-1]
-            results.append(result)
-            frames[i] = result
-        elif i == 0:
-            pass # Non-deep learning painting here
+        # load pretrained model
+        result = sess.run(output, feed_dict={input_image_ph: input_image})
+        result = result[0][:, :, ::-1]
+        results.append(result)
+        frames[i] = result
+
+    return results
+
+
+def repaint_video_classic(frames, masks, transforms):
+    print("3. REPAINT")
+
+    args, unknown = parser.parse_known_args()
+
+    results = []
+    transform = transforms[0]
+    # Process each image
+    for i in range(len(frames)):
+        print('Repainting frame ' + str(i + 1))
+        image = frames[i]
+        mask = masks[i]
+
+        assert image.shape == mask.shape
+        h, w, _ = image.shape
+
+        if i >= 1:
+            if i >= 2:
+                transform = transforms[i - 1] @ transform
+            prev_image = frames[0]
+
+            warped_prev_image = warp(transform, prev_image)
+            cropped = warped_prev_image * (mask // 255)
+            reverse_mask = 1 - (mask // 255)
+            image = reverse_mask * image + cropped
+
+            results.append(image.astype(np.uint8))
+        else:
+            mask = mask[:, :, 0] / 255
+            image = Inpainter(image, mask, patch_size=9).inpaint()
+            cv.imwrite('./data/process/frame' + str(i) + '.png', image)
+            #cv.imwrite('./data/process/mask' + str(i) + '.png', mask)
+
+            image = image.astype(np.uint8)
+            results.append(image)
+            frames[i] = image
 
     return results
 
@@ -458,8 +497,67 @@ def process_video_flow(args):
     out.release()
 
 
+def process_video_classic(args):
+    #  ==================== Open the video file  ====================
+    if not os.path.isfile(args.video):
+        print('Input video file ', args.video, ' does not exist')
+        sys.exit(1)
+
+    cap = cv.VideoCapture(args.video)
+    frame_size = (int(cap.get(cv.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv.CAP_PROP_FRAME_HEIGHT)))
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(args.output, fourcc, 30, frame_size)
+
+    count = 1
+    masked_frames = []
+    frames = []
+    masks = []
+    #while count < 10:
+    while cap.isOpened():
+        print('Processing frame ' + str(count))
+        ret, frame = cap.read()
+        count += 1
+
+        if ret:
+            frames.append(frame)
+
+            ##############
+            # step 1: selecting removal target region
+            ##############
+            target, bbox_coord = select_target(args, frame)
+
+            ##############
+            # step 2: masking removal target region
+            ##############
+            masked_frame, frame_mask = mask(args, target, bbox_coord)
+
+            ##############
+            # step 3: repainting masked region
+            ##############
+            masked_frames.append(masked_frame)
+            masks.append(frame_mask)
+
+            # Image.fromarray(repainted.astype(np.uint8)).save('data/result/(예시)1-2.png')
+        else:
+            break
+
+    transforms = []
+    for i in range(1, len(frames)):
+        print('Getting the affine transformation from frame ' + str(i + 1) + ' to ' + str(i))
+        prev_frame = cv.cvtColor(frames[i - 1], cv.COLOR_BGR2GRAY)
+        curr_frame = cv.cvtColor(frames[i], cv.COLOR_BGR2GRAY)
+        transforms.append(get_affine(prev_frame, curr_frame))
+
+    repainted = repaint_video_classic(masked_frames, masks, transforms)
+    for r in repainted:
+        out.write(r)
+
+    cap.release()
+    out.release()
+
+
 def main():
-    # read img
+    start = time.time()
 
     global classes, colors, masks, original_img, parser
     parser = argparse.ArgumentParser(description='image preprocess')
@@ -468,8 +566,7 @@ def main():
     parser.add_argument('--mask', default='', type=str, help='The filename of mask, value 255 indicates mask.')
     parser.add_argument('--output', default='output.png', type=str, help='Where to write output.')
     parser.add_argument('--checkpoint_dir', default='', type=str, help='The directory of tensorflow checkpoint.')
-    parser.add_argument('--naive', default=False)
-    parser.add_argument('--repetitive', default=False)
+    parser.add_argument('--method', default='classic')
 
     args = parser.parse_args()
 
@@ -478,13 +575,18 @@ def main():
         cv.imwrite(args.output, repainted)
 
     elif args.video != '':
-        if args.naive:
+        if args.method == 'naive':
             process_video_naive(args)
-        else:
+        elif args.method == 'flow':
             process_video_flow(args)
+        else:
+            process_video_classic(args)
 
     else:
         print('No input was provided')
+
+    end = time.time()
+    print('Time consumed: ' + str(end - start))
 
 
 if __name__ == '__main__':
