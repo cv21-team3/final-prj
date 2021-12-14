@@ -8,3 +8,6 @@ tensorflow==1.5.0
 pyyaml
 pillow
 git+https://github.com/JiahuiYu/neuralgym
+matplotlib>=2.0.2
+scikit-image>=0.13.0
+scipy>=0.19.1
